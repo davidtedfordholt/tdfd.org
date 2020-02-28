@@ -1,0 +1,77 @@
+languageCode = "en-us"
+title = "Prologue"
+baseurl = "http://tdfd.org/"
+theme = "prologue"
+ignoreFiles = ["\\.Rmd$", "\\.Rmarkdown$", "_files$", "_cache$"]
+
+[params]
+  name = "David Holt"
+  description = "data {alchemist, scientist, architect}"
+  copyright = "David Holt."
+
+[[params.social]]
+  medium = "twitter"
+  icon = "twitter"
+  link = "#davidtedfordholt"
+
+[[params.social]]
+  medium = "facebook"
+  icon = "facebook"
+  link = "#davidtedfordholt"
+
+[[params.social]]
+  medium = "github"
+  icon = "github"
+  link = "#davidtedfordholt"
+
+[[params.social]]
+  medium = "dribbble"
+  icon = "dribbble"
+  link = "#"
+
+[[params.social]]
+  medium = "email"
+  icon = "envelope"
+  link = "#d@tdfd.org"
+
+# Portfolio column one
+
+[[params.portfolio1]]
+  title = "Ipsum Feugiat"
+  alt = ""
+  source = "img/pic02.jpg"
+  url = "#"
+
+[[params.portfolio1]]
+  title = "Rhoncus Semper"
+  alt = ""
+  source = "img/pic03.jpg"
+  url = "#"
+
+# Portfolio column two
+
+[[params.portfolio2]]
+  title = "Magna Nullam"
+  alt = ""
+  source = "img/pic04.jpg"
+  url = "#"
+
+[[params.portfolio2]]
+  title = "Natoque Vitae"
+  alt = ""
+  source = "img/pic05.jpg"
+  url = "#"
+
+# Portfolio column 3
+
+[[params.portfolio3]]
+  title = "Dolor Penatibus"
+  alt = ""
+  source = "img/pic06.jpg"
+  url = "#"
+
+[[params.portfolio3]]
+  title = "Orci Convallis"
+  alt = ""
+  source = "img/pic07.jpg"
+  url = "#"
