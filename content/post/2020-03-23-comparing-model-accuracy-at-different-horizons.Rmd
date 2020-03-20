@@ -1,0 +1,82 @@
+---
+title: “Comparing Model Accuracy at Different Horizons”
+author: “David Holt”
+date: “3/19/2020”
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(forecast)
+library(fable)
+library(tsibble)
+library(tsibbledata)
+library(tsbox)
+```
+## Time series of interest
+First and foremost, I love the `tsibble` package. It’s the most sensible thing to happen to time series analysis in R since, well, `forecast`.
+Additionally, I love `tsbox` for making my <insert time series format> into a tsibbles.
+```{r data}
+wine <- forecast::wineind %>%
+    tsbox::ts_tsibble() %>%
+    tsibble::index_by(month = tsibble::yearmonth(time)) %>%
+    tsibble::update_tsibble(index = month) %>%
+    dplyr::select(-time)
+```
+## Examine time series
+I love `feasts`, for all the time series-specific plotting.
+```{r plots1}
+feasts::autoplot(wine, value)
+```
+## Model time series
+I also love `fable`, for bringing forecasting into the world of tidy data. Look at all the models!
+```{r model}
+models <-
+    wine %>%
+    fabletools::model(
+        mean = fable::MEAN(value)
+        ,rw_drift = fable::RW(value ~ drift())
+        ,naive = fable::NAIVE(value)
+        ,snaive = fable::SNAIVE(value)
+        ,ets = fable::ETS(value)
+        ,arima = fable::ARIMA(value)
+    )
+models
+```
+## Forecast time series
+`fable` makes it just as easy to forecast all those models, too. Let’s forecast 6 months!
+```{r forecast}
+forecasts <- fabletools::forecast(models, h = 6)
+forecasts
+```
+## Plot forecasts
+It just keeps getting better...
+```{r plot_forecasts}
+feasts::autoplot(forecasts, wine) +
+    ggplot2::lims(x = c(as.Date(“1993-01-01"), NA)) +
+    ggplot2::facet_wrap(~ .model, ncol = 2)
+```
+## Test model fit
+Getting fit statistics from the models is a breeze.
+```{r fit}
+accuracy <- fabletools::accuracy(models)
+```
+## Test model performance on a holdout
+Of course, we don’t just want to look at fit. We like rigor. We demand a holdout.
+... still easy! And it’ll show you how simple the whole thing is when piped.
+```{r holdout}
+wine %>%
+    filter(lubridate::year(month) < 1994) %>%
+        fabletools::model(
+        mean = fable::MEAN(value)
+        ,rw_drift = fable::RW(value ~ drift())
+        ,naive = fable::NAIVE(value)
+        ,snaive = fable::SNAIVE(value)
+        ,ets = fable::ETS(value)
+        ,arima = fable::ARIMA(value)
+    ) %>%
+    fabletools::forecast(h = 6) %>%
+    feasts::autoplot(wine) +
+    ggplot2::lims(x = c(as.Date(“1993-01-01”), NA)) +
+    ggplot2::facet_wrap(~ .model, ncol = 2)
+```
