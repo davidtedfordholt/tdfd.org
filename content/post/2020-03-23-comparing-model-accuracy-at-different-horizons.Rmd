@@ -9,27 +9,39 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(forecast)
 library(fable)
+library(fabletools)
+library(feasts)
 library(tsibble)
 library(tsibbledata)
 library(tsbox)
 ```
+
 ## Time series of interest
+
 First and foremost, I love the `tsibble` package. It’s the most sensible thing to happen to time series analysis in R since, well, `forecast`.
 Additionally, I love `tsbox` for making my <insert time series format> into a tsibbles.
+
 ```{r data}
 wine <- forecast::wineind %>%
     tsbox::ts_tsibble() %>%
     tsibble::index_by(month = tsibble::yearmonth(time)) %>%
     tsibble::update_tsibble(index = month) %>%
-    dplyr::select(-time)
+    dplyr::select(-time) %>%
+    ungroup()
 ```
+
 ## Examine time series
+
 I love `feasts`, for all the time series-specific plotting.
+
 ```{r plots1}
 feasts::autoplot(wine, value)
 ```
+
 ## Model time series
+
 I also love `fable`, for bringing forecasting into the world of tidy data. Look at all the models!
+
 ```{r model}
 models <-
     wine %>%
@@ -43,40 +55,110 @@ models <-
     )
 models
 ```
+
 ## Forecast time series
+
 `fable` makes it just as easy to forecast all those models, too. Let’s forecast 6 months!
+
 ```{r forecast}
 forecasts <- fabletools::forecast(models, h = 6)
 forecasts
 ```
+
 ## Plot forecasts
+
 It just keeps getting better...
+
 ```{r plot_forecasts}
 feasts::autoplot(forecasts, wine) +
-    ggplot2::lims(x = c(as.Date(“1993-01-01"), NA)) +
+    ggplot2::lims(x = c(as.Date("1993-01-01"), NA)) +
     ggplot2::facet_wrap(~ .model, ncol = 2)
 ```
+
 ## Test model fit
+
 Getting fit statistics from the models is a breeze.
+
+It looks like ETS and ARIMA are the clear winners here...
+
 ```{r fit}
 accuracy <- fabletools::accuracy(models)
+accuracy
 ```
+
 ## Test model performance on a holdout
+
 Of course, we don’t just want to look at fit. We like rigor. We demand a holdout.
-... still easy! And it’ll show you how simple the whole thing is when piped.
+... still easy!
+
 ```{r holdout}
-wine %>%
-    filter(lubridate::year(month) < 1994) %>%
-        fabletools::model(
+models_holdout <-
+    wine %>%
+    filter(month < as.Date("1994-03-01")) %>%
+    fabletools::model(
         mean = fable::MEAN(value)
         ,rw_drift = fable::RW(value ~ drift())
         ,naive = fable::NAIVE(value)
         ,snaive = fable::SNAIVE(value)
         ,ets = fable::ETS(value)
         ,arima = fable::ARIMA(value)
-    ) %>%
-    fabletools::forecast(h = 6) %>%
+    ) 
+
+forecasts_holdout <-
+    models_holdout %>%
+    fabletools::forecast(h = 6)
+
+forecasts_holdout %>%
     feasts::autoplot(wine) +
-    ggplot2::lims(x = c(as.Date(“1993-01-01”), NA)) +
+    ggplot2::lims(x = c(as.Date("1993-01-01"), NA)) +
     ggplot2::facet_wrap(~ .model, ncol = 2)
+```
+
+## Calculating accuracy on a holdout
+
+```{r holdout_accuracy}
+accuracy_holdout <- fabletools::accuracy(forecasts_holdout, wine)
+
+accuracy_holdout
+```
+
+## Compare accuracy between training and holdout
+
+We can see, and this isn't too surprising, that the three simplest methods (mean, naive and random walk with drift) all failed to fit the training data as tightly, but did similarly well on the holdout.
+
+ARIMA and the mean performed best on the holdout sample.
+
+```{r compare_accuracy}
+accuracy %>%
+    left_join(accuracy_holdout, by = ".model", suffix = c(".train", ".holdout")) %>%
+    ggplot2::ggplot() +
+    ggplot2::geom_point(aes(x = MAPE.holdout, y = MAPE.train, color = .model)) +
+    ggplot2::geom_abline(slope = 1, intercept = c(0,0)) +
+    ggplot2::lims(x = c(0, 25), y = c(0, 25))
+```
+
+## Compare the bias
+
+The underprediction of the naive and random walk models is obvious, as is the overprediction of the seasonal naive.
+
+The mean, followed by ETS, gives the least biased predictions on the holdout sample.
+
+```{r compare_bias}
+accuracy %>%
+    left_join(accuracy_holdout, by = ".model", suffix = c(".train", ".holdout")) %>%
+    ggplot2::ggplot() +
+    ggplot2::geom_point(aes(x = MPE.holdout, y = MPE.train, color = .model)) +
+    ggplot2::geom_hline(yintercept = 0) +
+    ggplot2::geom_vline(xintercept = 0) +
+    ggplot2::lims(x = c(-10, 12), y = c(-10, 12))
+```
+
+## Intermediate Conclusion
+
+When we apply the rigor of a holdout, maybe the mean is the way to go. In terms of accuracy, the mean was nearly as good as ARIMA. In terms of bias, the mean was the best. Of course, it's possible that this is just because of the particular 6 months we looked at.
+
+If we really want to know, we will need to try a few different holdouts. Time series cross validation, ladies and gentlemen!
+
+```{r tscv}
+
 ```
