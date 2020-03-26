@@ -3,10 +3,12 @@ title: “Comparing Model Accuracy at Different Horizons”
 author: “David Holt”
 date: “3/19/2020”
 output: html_document
+theme: tufte_html
 ---
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(tidyverse)
+library(dplyr)
+library(ggplot2)
 library(forecast)
 library(fable)
 library(fabletools)
@@ -35,7 +37,11 @@ wine <- forecast::wineind %>%
 I love `feasts`, for all the time series-specific plotting.
 
 ```{r plots1}
-feasts::autoplot(wine, value)
+feasts::autoplot(wine, value) +
+    labs(title = "Wine Sales in Australian", 
+         x = "Month", 
+         y = "Total Sales") +
+    theme_minimal()
 ```
 
 ## Model time series
@@ -72,7 +78,11 @@ It just keeps getting better...
 ```{r plot_forecasts}
 feasts::autoplot(forecasts, wine) +
     ggplot2::lims(x = c(as.Date("1993-01-01"), NA)) +
-    ggplot2::facet_wrap(~ .model, ncol = 2)
+    ggplot2::facet_wrap(~ .model, ncol = 2) +
+    labs(title = "Model Predictions", 
+         x = "Month", 
+         y = "Total Sales") +
+    theme_minimal()
 ```
 
 ## Test model fit
@@ -111,7 +121,11 @@ forecasts_holdout <-
 forecasts_holdout %>%
     feasts::autoplot(wine) +
     ggplot2::lims(x = c(as.Date("1993-01-01"), NA)) +
-    ggplot2::facet_wrap(~ .model, ncol = 2)
+    ggplot2::facet_wrap(~ .model, ncol = 2) +
+    labs(title = "Model Performance on Holdout", 
+         x = "Month", 
+         y = "Total Sales") +
+    theme_minimal()
 ```
 
 ## Calculating accuracy on a holdout
@@ -134,7 +148,11 @@ accuracy %>%
     ggplot2::ggplot() +
     ggplot2::geom_point(aes(x = MAPE.holdout, y = MAPE.train, color = .model)) +
     ggplot2::geom_abline(slope = 1, intercept = c(0,0)) +
-    ggplot2::lims(x = c(0, 25), y = c(0, 25))
+    ggplot2::lims(x = c(0, 25), y = c(0, 25)) +
+    labs(
+        title = "Accuracy in Training Fit and Holdout Performance", 
+        x = "Holdout MAPE", 
+        y = "Training MAPE")
 ```
 
 ## Compare the bias
@@ -150,7 +168,11 @@ accuracy %>%
     ggplot2::geom_point(aes(x = MPE.holdout, y = MPE.train, color = .model)) +
     ggplot2::geom_hline(yintercept = 0) +
     ggplot2::geom_vline(xintercept = 0) +
-    ggplot2::lims(x = c(-10, 12), y = c(-10, 12))
+    ggplot2::lims(x = c(-10, 12), y = c(-10, 12)) +
+    labs(
+        title = "Bias in Training Fit and Holdout Performance", 
+        x = "Holdout Mean Percent Error", 
+        y = "Training Mean Percent Error")
 ```
 
 ## Intermediate Conclusion
@@ -160,5 +182,86 @@ When we apply the rigor of a holdout, maybe the mean is the way to go. In terms 
 If we really want to know, we will need to try a few different holdouts. Time series cross validation, ladies and gentlemen!
 
 ```{r tscv}
+model_at_cutoff <-
+    function(cutoff_date, tsbl) {
+        tsbl %>%
+            tsibble::filter_index(~ cutoff_date) %>%
+            fabletools::model(
+                mean = fable::MEAN(value)
+                ,rw_drift = fable::RW(value ~ drift())
+                ,naive = fable::NAIVE(value)
+                ,snaive = fable::SNAIVE(value)
+                ,ets = fable::ETS(value)
+                ,arima = fable::ARIMA(value)
+                ,var = fable::VAR(value)
+                ,nnetar = fable::NNETAR(value ~ AR(period = "1 year"))
+            ) %>%
+            # dplyr::mutate(
+            #     ensemble_all = (mean + rw_drift + naive + snaive + ets + arima) / 6
+            #     ,ensemble_seasonal = (snaive + ets + arima) / 3
+            #     ,ensemble_naive = (mean + rw_drift + naive + snaive) / 4
+            # ) %>%
+            fabletools::forecast(h = 6) %>%
+            tsibble::as_tsibble() %>%
+            dplyr::select(-.distribution) %>%
+            dplyr::rename(forecast = value) %>%
+            dplyr::left_join(wine, by = "month") %>%
+            dplyr::mutate(
+                cutoff = cutoff_date
+                ,residual = value - forecast
+                ,percent_residual = residual / value * 100
+                ,horizon = month - cutoff
+            ) %>%
+            tibble::as_tibble()
+    }
 
+cutoff_dates <- wine$month[nrow(wine)-36:6]
+
+cv <-
+    cutoff_dates %>%
+    purrr::map_df(model_at_cutoff, tsbl = wine) %>%
+    dplyr::mutate(month = tsibble::yearmonth(month)) %>%
+    tsibble::as_tsibble(
+        key = c(".model", "horizon"),
+        index = month
+    )
+
+cv_accuracy <-
+    cv %>%
+    tibble::as_tibble() %>%
+    dplyr::group_by(.model, horizon) %>%
+    dplyr::summarise(
+        MAPE = mean(abs(percent_residual))
+        ,MPE = mean(percent_residual)
+    )
+
+cv_accuracy %>%
+    ggplot(aes(x = horizon, y = MAPE, color = .model)) +
+    geom_line() +
+    lims(x = c(0, NA), y = c(0, NA)) +
+    labs(title = "MAPE by horizon", 
+         x = "Horizon", 
+         y = "MAPE") +
+    theme_minimal()
+
+cv_accuracy %>%
+    ggplot(aes(x = MPE, y = MAPE, color = horizon)) +
+    geom_point() +
+    lims(x = c(-10, 10), y = c(0, NA)) +
+    ggplot2::geom_hline(yintercept = 0) +
+    ggplot2::geom_vline(xintercept = 0) +
+    facet_wrap(~ .model) +
+    labs(title = "MAPE by horizon", 
+         x = "MPE", 
+         y = "MAPE") +
+    theme_minimal()
 ```
+
+## The "Real" World
+
+But let's ask how we would actually USE the information about wine sales in Australia by month.
+
+## The Wine Merchant
+(How cool is the phrase "wine merchant"?)
+
+Business Decision: how much wine to purchase to bring my stock up to what I'll need this month
